@@ -62,8 +62,4 @@ jobs:
           name: PermissionTool-x86
           path: dist/*.exe
           
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.exe
+    
