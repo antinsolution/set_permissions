@@ -1,17 +1,22 @@
-#!/usr/bin/env python3
 import os
 import subprocess
 import unicodedata
 import re
+import ctypes
 from pathlib import Path
 from tkinter import Tk, Label, Entry, Button, Checkbutton, IntVar, StringVar, filedialog, messagebox
 from tkinter import ttk
 
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
 
 class PermissionTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("Permission Tool")
+        self.root.title("PM reset permission - AnTin Solution")
         self.root.geometry("620x420")
         self.root.resizable(False, False)
 
@@ -25,6 +30,12 @@ class PermissionTool:
         self.status_text = StringVar(value="Sẵn sàng.")
 
         self.build_ui()
+
+        if os.name == "nt" and not is_admin():
+            messagebox.showwarning(
+                "Cảnh báo",
+                "Nên chạy chương trình bằng quyền Administrator để thay đổi ACL."
+            )
 
     def build_ui(self):
         notebook = ttk.Notebook(self.root)
@@ -45,8 +56,9 @@ class PermissionTool:
         Button(frame, text="Chọn target", width=18, command=self.choose_target).place(x=420, y=15)
         Entry(frame, textvariable=self.target_path, width=60, state="readonly").place(x=20, y=60)
 
-        Label(frame, text="Đặt Everyone FullControl và loại bỏ ACL khác.").place(x=20, y=100)
-        Label(frame, text="AnTin Solution - Zalo: 0344 53 68 62").place(x=20, y=130)
+        Label(frame, text="Fix permission- dev by: AnTin Solution").place(x=20, y=100)
+        Label(frame, text="Chuyên: viết PM theo yêu cầu - Sửa máy tính - camera - máy in").place(x=20, y=130)
+        Label(frame, text="Zalo: 0344 53 68 62").place(x=20, y=160)
 
         Button(frame, text="Áp dụng", width=22, command=self.apply_permissions).place(x=140, y=280)
         Button(frame, text="Thoát", width=22, command=self.root.quit).place(x=340, y=280)
@@ -58,17 +70,13 @@ class PermissionTool:
         Button(frame, text="Chọn Ổ đĩa/thư mục/file", width=16, command=self.choose_rename_target).place(x=420, y=15)
         Entry(frame, textvariable=self.rename_target_path, width=60, state="readonly").place(x=20, y=60)
 
-        Label(frame, text="Tên mới không dấu (tự động tạo khi chọn target):").place(x=20, y=110)
+        Label(frame, text="Tên mới không dấu:").place(x=20, y=110)
         Entry(frame, textvariable=self.rename_target_name, width=60).place(x=20, y=140)
 
-        self.create_checkbox(frame, "Đổi tên đệ quy cho tất cả file/thư mục con", self.rename_recursive, 20, 180)
+        Checkbutton(frame, text="Đổi tên đệ quy cho tất cả file/thư mục con",
+                    variable=self.rename_recursive).place(x=20, y=180)
 
         Button(frame, text="Đổi tên", width=22, command=self.apply_rename).place(x=340, y=220)
-
-        Label(frame, text="Ví dụ: Nguyễn Văn A -> Nguyen Van A").place(x=20, y=270)
-
-    def create_checkbox(self, frame, text, variable, x, y):
-        Checkbutton(frame, text=text, variable=variable).place(x=x, y=y)
 
     def choose_target(self):
         if self.target_type.get() == "File":
@@ -91,38 +99,32 @@ class PermissionTool:
         text = unicodedata.normalize("NFKD", text)
         text = ''.join(ch for ch in text if not unicodedata.combining(ch))
         text = text.replace('đ', 'd').replace('Đ', 'D')
-        text = re.sub(r'[<>:"/\\|?*]', '_', text)
+        text = re.sub(r'[<>:"/\\\\|?*]', '_', text)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
     def fill_normalized_name(self):
-        target_text = self.rename_target_path.get().strip()
-        if not target_text:
-            messagebox.showwarning("Lỗi", "Vui lòng chọn target để tạo tên không dấu.")
-            return
-        path = Path(target_text)
+        path = Path(self.rename_target_path.get())
         self.rename_target_name.set(self.normalize_text(path.name))
 
     def apply_windows_everyone_full_control(self, path: Path):
-        powershell_script = r"""
-$target = Get-Item -LiteralPath $args[0]
-$acl = if ($target.PSIsContainer) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone","FullControl","ContainerInherit, ObjectInherit","None","Allow")
-$acl.SetAccessRuleProtection($true,$false)
-$acl.SetAccessRule($rule)
-Set-Acl -Path $target.FullName -AclObject $acl
-"""
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", powershell_script, str(path)],
-            capture_output=True,
-            text=True,
-        )
+        cmd = [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            "Everyone:(OI)(CI)F",
+            "/T",
+            "/C"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise OSError(result.stderr.strip() or result.stdout.strip())
+            raise OSError(result.stderr.strip() or result.stdout.strip() or "ICACLS failed")
 
     def apply_permissions(self):
         path_text = self.target_path.get().strip()
         if not path_text:
-            messagebox.showwarning("Lỗi", "Vui lòng chọn target trước khi áp dụng quyền.")
+            messagebox.showwarning("Lỗi", "Vui lòng chọn target.")
             return
 
         path = Path(path_text)
@@ -131,73 +133,57 @@ Set-Acl -Path $target.FullName -AclObject $acl
             return
 
         try:
-            if os.name != "nt":
-                raise OSError("Chỉ chạy trên Windows. Tool này không hỗ trợ hệ điều hành khác.")
             self.apply_windows_everyone_full_control(path)
-        except PermissionError:
-            messagebox.showerror("Lỗi", "Không đủ quyền để thay đổi quyền truy cập. Hãy chạy với quyền quản trị nếu cần.")
-            return
-        except OSError as err:
-            messagebox.showerror("Lỗi", f"Lỗi khi thay đổi quyền: {err}")
-            return
-
-        status_message = f"Đã áp dụng quyền cho {path}"
-        self.status_text.set(status_message)
-        messagebox.showinfo("Thành công", status_message)
+            self.status_text.set(f"Đã áp dụng quyền cho {path}")
+            messagebox.showinfo("Thành công", f"Đã áp dụng quyền cho {path}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
 
     def apply_recursive_rename(self, root: Path):
+        if root.parent == root:
+            raise OSError("Không thể đổi tên ổ đĩa.")
+
         items = sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True)
+
         for item in items:
-            normalized = self.normalize_text(item.name)
-            if normalized and normalized != item.name:
-                target = item.with_name(normalized)
-                if target.exists() and not target.samefile(item):
-                    raise OSError(f"Tên đã tồn tại khi đổi tên đệ quy: {target}")
+            new_name = self.normalize_text(item.name)
+            if new_name and new_name != item.name:
+                target = item.with_name(new_name)
+                if target.exists():
+                    raise OSError(f"Tên đã tồn tại: {target}")
                 item.rename(target)
 
-        normalized_root = self.normalize_text(root.name)
-        if normalized_root and normalized_root != root.name:
-            new_root = root.with_name(normalized_root)
-            if new_root.exists() and not new_root.samefile(root):
-                raise OSError(f"Tên thư mục mới đã tồn tại: {new_root}")
-            root.rename(new_root)
-            return new_root
         return root
 
     def apply_rename(self):
-        path_text = self.rename_target_path.get().strip()
+        path = Path(self.rename_target_path.get().strip())
         new_name = self.rename_target_name.get().strip()
-        if not path_text:
-            messagebox.showwarning("Lỗi", "Vui lòng chọn target để đổi tên.")
-            return
-        if not new_name:
-            messagebox.showwarning("Lỗi", "Vui lòng tạo tên mới không dấu trước khi đổi tên.")
-            return
 
-        path = Path(path_text)
         if not path.exists():
-            messagebox.showerror("Lỗi", f"Target không tồn tại: {path}")
+            messagebox.showerror("Lỗi", "Target không tồn tại.")
             return
 
         try:
-            if self.rename_target_type.get() == "Thư mục" and self.rename_recursive.get() and path.is_dir():
-                final_path = self.apply_recursive_rename(path)
-                messagebox.showinfo("Thành công", f"Đã đổi tên đệ quy thư mục và nội dung: {final_path}")
-                self.rename_target_path.set(str(final_path))
-                self.rename_target_name.set(final_path.name)
-            else:
-                new_path = path.with_name(new_name)
-                if new_path.exists() and not new_path.samefile(path):
-                    messagebox.showerror("Lỗi", f"Tên mới đã tồn tại: {new_path}")
-                    return
-                path.rename(new_path)
-                messagebox.showinfo("Thành công", f"Đã đổi tên thành: {new_path}")
-                self.rename_target_path.set(str(new_path))
-                self.rename_target_name.set(new_path.name)
-        except OSError as err:
-            messagebox.showerror("Lỗi", f"Không thể đổi tên: {err}")
-            return
+            if self.rename_recursive.get() and path.is_dir():
+                self.apply_recursive_rename(path)
 
+            if path.parent == path:
+                raise OSError("Không thể đổi tên ổ đĩa.")
+
+            new_path = path.with_name(new_name)
+
+            if new_path.exists() and new_path != path:
+                raise OSError("Tên mới đã tồn tại.")
+
+            path.rename(new_path)
+
+            self.rename_target_path.set(str(new_path))
+            self.rename_target_name.set(new_path.name)
+
+            messagebox.showinfo("Thành công", f"Đã đổi tên thành:\n{new_path}")
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
 
 if __name__ == "__main__":
     root = Tk()
